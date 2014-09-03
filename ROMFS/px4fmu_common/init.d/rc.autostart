@@ -131,6 +131,11 @@ then
     sh /etc/init.d/4008_ardrone
 fi
 
+if param compare SYS_AUTOSTART 4009
+then
+	sh /etc/init.d/4009_Chi_P10
+fi
+
 if param compare SYS_AUTOSTART 4010 10
 then
 	sh /etc/init.d/4010_dji_f330
