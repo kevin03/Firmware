@@ -237,7 +237,7 @@ public:
 	void			unlockMessageBufferMutex(void) { pthread_mutex_unlock(&_message_buffer_mutex); }
 
 	/**
-	 * Count a transmision error
+	 * Count a transmission error
 	 */
 	void			count_txerr();
 
