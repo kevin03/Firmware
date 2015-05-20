@@ -206,6 +206,10 @@ MavlinkReceiver::handle_message(mavlink_message_t *msg)
 			handle_message_hil_optical_flow(msg);
 			break;
 
+		case MAVLINK_MSG_ID_TRAJECTORY_MSG:
+			handle_message_trajectory_msg(msg);
+			break;
+
 		default:
 			break;
 		}
@@ -228,6 +232,31 @@ MavlinkReceiver::handle_message(mavlink_message_t *msg)
 	   This is used in the '-w' command-line flag. */
 	_mavlink->set_has_received_messages(true);
 }
+
+void MavlinkReceiver::handle_message_trajectory_msg(mavlink_message_t *msg)
+{
+	/* ca_trajectory */
+	mavlink_trajectory_msg_t traj;
+	mavlink_msg_trajectory_msg_decode(msg, &traj);
+
+	struct traj_struct_s f;
+	memset(&f, 0, sizeof(f));
+
+	f.timestamp = hrt_absolute_time();
+	f.seq_id = traj.seq_id;
+	f.time_start_usec = traj.time_start_usec;
+	f.time_stop_usec = traj.time_stop_usec;
+	for(int i=0;i<28;i++)
+		f.coefficients[i] = traj.coefficients[i];
+
+	if (_traj_msg_pub<= 0) {
+		_traj_msg_pub = orb_advertise(ORB_ID(trajectory_msg), &f);
+	} else {
+		orb_publish(ORB_ID(trajectory_msg), _traj_msg_pub, &f);
+	}
+}
+
+
 
 void
 MavlinkReceiver::handle_message_command_long(mavlink_message_t *msg)

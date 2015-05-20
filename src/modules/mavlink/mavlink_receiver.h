@@ -71,6 +71,7 @@
 #include <uORB/topics/debug_key_value.h>
 #include <uORB/topics/airspeed.h>
 #include <uORB/topics/battery_status.h>
+#include <uORB/topics/trajectory_msg.h>
 
 #include "mavlink_ftp.h"
 
@@ -109,6 +110,7 @@ private:
 	Mavlink	*_mavlink;
 
 	void handle_message(mavlink_message_t *msg);
+	void handle_message_trajectory_msg(mavlink_message_t *msg);
 	void handle_message_command_long(mavlink_message_t *msg);
 	void handle_message_command_int(mavlink_message_t *msg);
 	void handle_message_optical_flow(mavlink_message_t *msg);
@@ -130,6 +132,7 @@ private:
 	mavlink_status_t status;
 	struct vehicle_local_position_s hil_local_pos;
 	struct vehicle_control_mode_s _control_mode;
+	orb_advert_t _traj_msg_pub;
 	orb_advert_t _global_pos_pub;
 	orb_advert_t _local_pos_pub;
 	orb_advert_t _attitude_pub;
