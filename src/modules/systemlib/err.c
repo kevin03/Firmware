@@ -38,7 +38,7 @@
  * the same names.
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <stdlib.h>
 #include <errno.h>
@@ -154,6 +154,7 @@ warn(const char *fmt, ...)
 
 	va_start(args, fmt);
 	vwarn(fmt, args);
+	va_end(args);
 }
 
 void
@@ -169,6 +170,7 @@ warnc(int errcode, const char *fmt, ...)
 
 	va_start(args, fmt);
 	vwarnc(errcode, fmt, args);
+	va_end(args);
 }
 
 void
@@ -184,6 +186,7 @@ warnx(const char *fmt, ...)
 
 	va_start(args, fmt);
 	vwarnx(fmt, args);
+	va_end(args);
 }
 
 void

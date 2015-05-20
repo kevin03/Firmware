@@ -40,7 +40,7 @@
  * @author Thomas Gubler
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -48,6 +48,8 @@
 #include <systemlib/err.h>
 #include <queue.h>
 #include <string.h>
+#include <semaphore.h>
+#include <unistd.h>
 
 #include "dataman.h"
 #include <systemlib/param/param.h>
@@ -129,6 +131,7 @@ static sem_t g_sys_state_mutex;
 
 /* The data manager store file handle and file name */
 static int g_fd = -1, g_task_fd = -1;
+// FIXME - need a configurable path that is not OS specific
 static const char *k_data_manager_device_path = "/fs/microsd/dataman";
 
 /* The data manager work queues */
@@ -629,9 +632,6 @@ task_main(int argc, char *argv[])
 {
 	work_q_item_t *work;
 
-	/* inform about start */
-	warnx("Initializing..");
-
 	/* Initialize global variables */
 	g_key_offsets[0] = 0;
 
@@ -671,7 +671,7 @@ task_main(int argc, char *argv[])
 	}
 
 	/* Open or create the data manager file */
-	g_task_fd = open(k_data_manager_device_path, O_RDWR | O_CREAT | O_BINARY);
+	g_task_fd = open(k_data_manager_device_path, O_RDWR | O_CREAT | O_BINARY, 0x0777);
 
 	if (g_task_fd < 0) {
 		warnx("Could not open data manager file %s", k_data_manager_device_path);
@@ -688,29 +688,29 @@ task_main(int argc, char *argv[])
 
 	fsync(g_task_fd);
 
+	printf("dataman: ");
 	/* see if we need to erase any items based on restart type */
 	int sys_restart_val;
 	if (param_get(param_find("SYS_RESTART_TYPE"), &sys_restart_val) == OK) {
 		if (sys_restart_val == DM_INIT_REASON_POWER_ON) {
-			warnx("Power on restart");
+			printf("Power on restart");
 			_restart(DM_INIT_REASON_POWER_ON);
-		}
-		else if (sys_restart_val == DM_INIT_REASON_IN_FLIGHT) {
-			warnx("In flight restart");
+		} else if (sys_restart_val == DM_INIT_REASON_IN_FLIGHT) {
+			printf("In flight restart");
 			_restart(DM_INIT_REASON_IN_FLIGHT);
+		} else {
+			printf("Unknown restart");
 		}
-		else
-			warnx("Unknown restart");
+	} else {
+		printf("Unknown restart");
 	}
-	else
-		warnx("Unknown restart");
 
 	/* We use two file descriptors, one for the caller context and one for the worker thread */
 	/* They are actually the same but we need to some way to reject caller request while the */
 	/* worker thread is shutting down but still processing requests */
 	g_fd = g_task_fd;
 
-	warnx("Initialized, data manager file '%s' size is %d bytes", k_data_manager_device_path, max_offset);
+	printf(", data manager file '%s' size is %d bytes\n", k_data_manager_device_path, max_offset);
 
 	/* Tell startup that the worker thread has completed its initialization */
 	sem_post(&g_init_sema);
@@ -797,7 +797,7 @@ start(void)
 	sem_init(&g_init_sema, 1, 0);
 
 	/* start the worker thread */
-	if ((task = task_spawn_cmd("dataman", SCHED_DEFAULT, SCHED_PRIORITY_MAX - 5, 2000, task_main, NULL)) <= 0) {
+	if ((task = px4_task_spawn_cmd("dataman", SCHED_DEFAULT, SCHED_PRIORITY_DEFAULT, 1800, task_main, NULL)) <= 0) {
 		warn("task start failed");
 		return -1;
 	}
@@ -831,31 +831,40 @@ stop(void)
 static void
 usage(void)
 {
-	errx(1, "usage: dataman {start|stop|status|poweronrestart|inflightrestart}");
+	warnx("usage: dataman {start|stop|status|poweronrestart|inflightrestart}");
 }
 
 int
 dataman_main(int argc, char *argv[])
 {
-	if (argc < 2)
+	if (argc < 2) {
 		usage();
+		return -1;
+	}
 
 	if (!strcmp(argv[1], "start")) {
 
-		if (g_fd >= 0)
-			errx(1, "already running");
+		if (g_fd >= 0) {
+			warnx("dataman already running");
+			return -1;
+		}
 
 		start();
 
-		if (g_fd < 0)
-			errx(1, "start failed");
+		if (g_fd < 0) {
+			warnx("dataman start failed");
+			return -1;
+		}
 
-		exit(0);
+		return 0;
 	}
 
 	/* Worker thread should be running for all other commands */
-	if (g_fd < 0)
-		errx(1, "not running");
+	if (g_fd < 0) {
+		warnx("dataman worker thread not running");
+		usage();
+		return -1;
+	}
 
 	if (!strcmp(argv[1], "stop"))
 		stop();
@@ -865,8 +874,10 @@ dataman_main(int argc, char *argv[])
 		dm_restart(DM_INIT_REASON_POWER_ON);
 	else if (!strcmp(argv[1], "inflightrestart"))
 		dm_restart(DM_INIT_REASON_IN_FLIGHT);
-	else
+	else {
 		usage();
+		return -1;
+	}
 
-	exit(1);
+	return 1;
 }

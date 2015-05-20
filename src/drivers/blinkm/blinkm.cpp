@@ -93,7 +93,7 @@
  *
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -106,7 +106,7 @@
 #include <ctype.h>
 #include <poll.h>
 
-#include <nuttx/wqueue.h>
+#include <px4_workqueue.h>
 
 #include <systemlib/perf_counter.h>
 #include <systemlib/err.h>
@@ -140,7 +140,7 @@ public:
 	virtual int		init();
 	virtual int		probe();
 	virtual int		setMode(int mode);
-	virtual int		ioctl(struct file *filp, int cmd, unsigned long arg);
+	virtual int		ioctl(device::file_t *filp, int cmd, unsigned long arg);
 
 	static const char	*const script_names[];
 
@@ -275,7 +275,11 @@ const char *const BlinkM::script_names[] = {
 extern "C" __EXPORT int blinkm_main(int argc, char *argv[]);
 
 BlinkM::BlinkM(int bus, int blinkm) :
-	I2C("blinkm", BLINKM_DEVICE_PATH, bus, blinkm, 100000),
+	I2C("blinkm", BLINKM0_DEVICE_PATH, bus, blinkm
+#ifdef __PX4_NUTTX
+		, 100000
+#endif
+		),
 	led_color_1(LED_OFF),
 	led_color_2(LED_OFF),
 	led_color_3(LED_OFF),
@@ -358,7 +362,7 @@ BlinkM::probe()
 }
 
 int
-BlinkM::ioctl(struct file *filp, int cmd, unsigned long arg)
+BlinkM::ioctl(device::file_t *filp, int cmd, unsigned long arg)
 {
 	int ret = ENOTTY;
 
@@ -571,7 +575,7 @@ BlinkM::led()
 				printf("<blinkm> cells found:%d\n", num_of_cells);
 
 			} else {
-				if(vehicle_status_raw.battery_warning == VEHICLE_BATTERY_WARNING_CRITICAL) {
+				if(vehicle_status_raw.battery_warning == vehicle_status_s::VEHICLE_BATTERY_WARNING_CRITICAL) {
 					/* LED Pattern for battery critical alerting */
 					led_color_1 = LED_RED;
 					led_color_2 = LED_RED;
@@ -595,7 +599,7 @@ BlinkM::led()
 					led_color_8 = LED_BLUE;
 					led_blink = LED_BLINK;
 
-				} else if(vehicle_status_raw.battery_warning == VEHICLE_BATTERY_WARNING_LOW) {
+				} else if(vehicle_status_raw.battery_warning == vehicle_status_s::VEHICLE_BATTERY_WARNING_LOW) {
 					/* LED Pattern for battery low warning */
 					led_color_1 = LED_YELLOW;
 					led_color_2 = LED_YELLOW;
@@ -647,14 +651,14 @@ BlinkM::led()
 
 						if(new_data_vehicle_control_mode || no_data_vehicle_control_mode < 3) {
 							/* indicate main control state */
-							if (vehicle_status_raw.main_state == MAIN_STATE_POSCTL)
+							if (vehicle_status_raw.main_state == vehicle_status_s::MAIN_STATE_POSCTL)
 								led_color_4 = LED_GREEN;
 							/* TODO: add other Auto modes */
-							else if (vehicle_status_raw.main_state == MAIN_STATE_AUTO_MISSION)
+							else if (vehicle_status_raw.main_state == vehicle_status_s::MAIN_STATE_AUTO_MISSION)
 								led_color_4 = LED_BLUE;
-							else if (vehicle_status_raw.main_state == MAIN_STATE_ALTCTL)
+							else if (vehicle_status_raw.main_state == vehicle_status_s::MAIN_STATE_ALTCTL)
 								led_color_4 = LED_YELLOW;
-							else if (vehicle_status_raw.main_state == MAIN_STATE_MANUAL)
+							else if (vehicle_status_raw.main_state == vehicle_status_s::MAIN_STATE_MANUAL)
 								led_color_4 = LED_WHITE;
 							else
 								led_color_4 = LED_OFF;
@@ -943,6 +947,10 @@ blinkm_main(int argc, char *argv[])
 
 	int x;
 
+	if (argc < 2) {
+		blinkm_usage();
+		return 1;
+	}
 	for (x = 1; x < argc; x++) {
 		if (strcmp(argv[x], "-b") == 0 || strcmp(argv[x], "--bus") == 0) {
 			if (argc > x + 1) {
@@ -959,38 +967,43 @@ blinkm_main(int argc, char *argv[])
 	}
 
 	if (!strcmp(argv[1], "start")) {
-		if (g_blinkm != nullptr)
-			errx(1, "already started");
+		if (g_blinkm != nullptr) {
+			warnx("already started");
+			return 1;
+		}
 
 		g_blinkm = new BlinkM(i2cdevice, blinkmadr);
 
-		if (g_blinkm == nullptr)
-			errx(1, "new failed");
+		if (g_blinkm == nullptr) {
+			warnx("new failed");
+			return 1;
+		}
 
 		if (OK != g_blinkm->init()) {
 			delete g_blinkm;
 			g_blinkm = nullptr;
-			errx(1, "init failed");
+			warnx("init failed");
+			return 1;
 		}
 
-		exit(0);
+		return 0;
 	}
 
 
 	if (g_blinkm == nullptr) {
 		fprintf(stderr, "not started\n");
 		blinkm_usage();
-		exit(0);
+		return 0;
 	}
 
 	if (!strcmp(argv[1], "systemstate")) {
 		g_blinkm->setMode(1);
-		exit(0);
+		return 0;
 	}
 
 	if (!strcmp(argv[1], "ledoff")) {
 		g_blinkm->setMode(0);
-		exit(0);
+		return 0;
 	}
 
 
@@ -998,18 +1011,22 @@ blinkm_main(int argc, char *argv[])
 		for (unsigned i = 0; BlinkM::script_names[i] != nullptr; i++)
 			fprintf(stderr, "    %s\n", BlinkM::script_names[i]);
 		fprintf(stderr, "    <html color number>\n");
-		exit(0);
+		return 0;
 	}
 
 	/* things that require access to the device */
-	int fd = open(BLINKM_DEVICE_PATH, 0);
-	if (fd < 0)
-		err(1, "can't open BlinkM device");
+	int fd = px4_open(BLINKM0_DEVICE_PATH, 0);
+	if (fd < 0) {
+		warn("can't open BlinkM device");
+		return 1;
+	}
 
 	g_blinkm->setMode(0);
-	if (ioctl(fd, BLINKM_PLAY_SCRIPT_NAMED, (unsigned long)argv[1]) == OK)
-		exit(0);
+	if (px4_ioctl(fd, BLINKM_PLAY_SCRIPT_NAMED, (unsigned long)argv[1]) == OK)
+		return 0;
+
+	px4_close(fd);
 
 	blinkm_usage();
-	exit(0);
+	return 0;
 }

@@ -38,9 +38,12 @@
  *
  * @author Tobias Naegeli <naegelit@student.ethz.ch>
  * @author Lorenz Meier <lm@inf.ethz.ch>
+ * @author Thomas Gubler <thomasgubler@gmail.com>
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
+#include <px4_defines.h>
+#include <px4_posix.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -48,9 +51,6 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <float.h>
-#include <nuttx/sched.h>
-#include <sys/prctl.h>
-#include <termios.h>
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
@@ -62,6 +62,7 @@
 #include <uORB/topics/vehicle_gps_position.h>
 #include <uORB/topics/vehicle_global_position.h>
 #include <uORB/topics/parameter_update.h>
+#include <uORB/topics/vision_position_estimate.h>
 #include <drivers/drv_hrt.h>
 
 #include <lib/mathlib/mathlib.h>
@@ -74,8 +75,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#include "codegen/attitudeKalmanfilter_initialize.h"
-#include "codegen/attitudeKalmanfilter.h"
+#include "codegen/AttitudeEKF.h"
 #include "attitude_estimator_ekf_params.h"
 #ifdef __cplusplus
 }
@@ -100,11 +100,11 @@ static void usage(const char *reason);
 static void
 usage(const char *reason)
 {
-	if (reason)
+	if (reason) {
 		fprintf(stderr, "%s\n", reason);
+	}
 
 	fprintf(stderr, "usage: attitude_estimator_ekf {start|stop|status} [-p <additional params>]\n\n");
-	exit(1);
 }
 
 /**
@@ -113,51 +113,53 @@ usage(const char *reason)
  * Makefile does only apply to this management task.
  *
  * The actual stack size should be set in the call
- * to task_spawn_cmd().
+ * to px4_task_spawn_cmd().
  */
 int attitude_estimator_ekf_main(int argc, char *argv[])
 {
-	if (argc < 1)
+	if (argc < 2) {
 		usage("missing command");
+		return 1;
+	}
 
 	if (!strcmp(argv[1], "start")) {
 
 		if (thread_running) {
-			printf("attitude_estimator_ekf already running\n");
+			warnx("already running\n");
 			/* this is not an error */
-			exit(0);
+			return 0;
 		}
 
 		thread_should_exit = false;
-		attitude_estimator_ekf_task = task_spawn_cmd("attitude_estimator_ekf",
+		attitude_estimator_ekf_task = px4_task_spawn_cmd("attitude_estimator_ekf",
 					      SCHED_DEFAULT,
 					      SCHED_PRIORITY_MAX - 5,
-					      14000,
+					      7700,
 					      attitude_estimator_ekf_thread_main,
-					      (argv) ? (const char **)&argv[2] : (const char **)NULL);
-		exit(0);
+					      (argv) ? (char * const *)&argv[2] : (char * const *)NULL);
+		return 0;
 	}
 
 	if (!strcmp(argv[1], "stop")) {
 		thread_should_exit = true;
-		exit(0);
+		return 0;
 	}
 
 	if (!strcmp(argv[1], "status")) {
 		if (thread_running) {
 			warnx("running");
-			exit(0);
+			return 0;
 
 		} else {
 			warnx("not started");
-			exit(1);
+			return 1;
 		}
 
-		exit(0);
+		return 0;
 	}
 
 	usage("unrecognized command");
-	exit(1);
+	return 1;
 }
 
 /*
@@ -174,8 +176,6 @@ int attitude_estimator_ekf_main(int argc, char *argv[])
  */
 int attitude_estimator_ekf_thread_main(int argc, char *argv[])
 {
-
-const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 
 	float dt = 0.005f;
 /* state vector x has the following entries [ax,ay,az||mx,my,mz||wox,woy,woz||wx,wy,wz]' */
@@ -206,22 +206,17 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 			      0,  0,  1.f
 			     };		/**< init: identity matrix */
 
-	// print text
-	printf("Extended Kalman Filter Attitude Estimator initialized..\n\n");
-	fflush(stdout);
-
-	int overloadcounter = 19;
+	float debugOutput[4] = { 0.0f };
 
 	/* Initialize filter */
-	attitudeKalmanfilter_initialize();
-
-	/* store start time to guard against too slow update rates */
-	uint64_t last_run = hrt_absolute_time();
+	AttitudeEKF_initialize();
 
 	struct sensor_combined_s raw;
 	memset(&raw, 0, sizeof(raw));
 	struct vehicle_gps_position_s gps;
 	memset(&gps, 0, sizeof(gps));
+	gps.eph = 100000;
+	gps.epv = 100000;
 	struct vehicle_global_position_s global_pos;
 	memset(&global_pos, 0, sizeof(global_pos));
 	struct vehicle_attitude_s att;
@@ -260,8 +255,11 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 	/* subscribe to param changes */
 	int sub_params = orb_subscribe(ORB_ID(parameter_update));
 
-	/* subscribe to control mode*/
+	/* subscribe to control mode */
 	int sub_control_mode = orb_subscribe(ORB_ID(vehicle_control_mode));
+
+	/* subscribe to vision estimate */
+	int vision_sub = orb_subscribe(ORB_ID(vision_position_estimate));
 
 	/* advertise attitude */
 	orb_advert_t pub_att = orb_advertise(ORB_ID(vehicle_attitude), &att);
@@ -270,16 +268,13 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 
 	thread_running = true;
 
-	/* advertise debug value */
-	// struct debug_key_value_s dbg = { .key = "", .value = 0.0f };
-	// orb_advert_t pub_dbg = -1;
-
 	/* keep track of sensor updates */
 	uint64_t sensor_last_timestamp[3] = {0, 0, 0};
 
 	struct attitude_estimator_ekf_params ekf_params;
+	memset(&ekf_params, 0, sizeof(ekf_params));
 
-	struct attitude_estimator_ekf_param_handles ekf_param_handles;
+	struct attitude_estimator_ekf_param_handles ekf_param_handles = { 0 };
 
 	/* initialize parameter handles */
 	parameters_init(&ekf_param_handles);
@@ -295,18 +290,20 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 	math::Matrix<3, 3> R_decl;
 	R_decl.identity();
 
+	struct vision_position_estimate vision {};
+
 	/* register the perf counter */
 	perf_counter_t ekf_loop_perf = perf_alloc(PC_ELAPSED, "attitude_estimator_ekf");
 
 	/* Main loop*/
 	while (!thread_should_exit) {
 
-		struct pollfd fds[2];
+		px4_pollfd_struct_t fds[2];
 		fds[0].fd = sub_raw;
 		fds[0].events = POLLIN;
 		fds[1].fd = sub_params;
 		fds[1].events = POLLIN;
-		int ret = poll(fds, 2, 1000);
+		int ret = px4_poll(fds, 2, 1000);
 
 		if (ret < 0) {
 			/* XXX this is seriously bad - should be an emergency */
@@ -315,8 +312,7 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 			orb_copy(ORB_ID(vehicle_control_mode), sub_control_mode, &control_mode);
 
 			if (!control_mode.flag_system_hil_enabled) {
-				fprintf(stderr,
-					"[att ekf] WARNING: Not getting sensors - sensor app running?\n");
+				warnx("WARNING: Not getting sensor data - sensor app running?");
 			}
 
 		} else {
@@ -401,16 +397,7 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 
 					hrt_abstime vel_t = 0;
 					bool vel_valid = false;
-					if (ekf_params.acc_comp == 1 && gps.fix_type >= 3 && gps.eph < 10.0f && gps.vel_ned_valid && hrt_absolute_time() < gps.timestamp_velocity + 500000) {
-						vel_valid = true;
-						if (gps_updated) {
-							vel_t = gps.timestamp_velocity;
-							vel(0) = gps.vel_n_m_s;
-							vel(1) = gps.vel_e_m_s;
-							vel(2) = gps.vel_d_m_s;
-						}
-
-					} else if (ekf_params.acc_comp == 2 && gps.eph < 5.0f && global_pos.timestamp != 0 && hrt_absolute_time() < global_pos.timestamp + 20000) {
+					if (gps.eph < 5.0f && global_pos.timestamp != 0 && hrt_absolute_time() < global_pos.timestamp + 20000) {
 						vel_valid = true;
 						if (global_pos_updated) {
 							vel_t = global_pos.timestamp;
@@ -445,28 +432,39 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 					z_k[5] = raw.accelerometer_m_s2[2] - acc(2);
 
 					/* update magnetometer measurements */
-					if (sensor_last_timestamp[2] != raw.magnetometer_timestamp) {
+					if (sensor_last_timestamp[2] != raw.magnetometer_timestamp &&
+						/* check that the mag vector is > 0 */
+						fabsf(sqrtf(raw.magnetometer_ga[0] * raw.magnetometer_ga[0] +
+							raw.magnetometer_ga[1] * raw.magnetometer_ga[1] +
+							raw.magnetometer_ga[2] * raw.magnetometer_ga[2])) > 0.1f) {
 						update_vect[2] = 1;
 						// sensor_update_hz[2] = 1e6f / (raw.timestamp - sensor_last_timestamp[2]);
 						sensor_last_timestamp[2] = raw.magnetometer_timestamp;
 					}
 
-					z_k[6] = raw.magnetometer_ga[0];
-					z_k[7] = raw.magnetometer_ga[1];
-					z_k[8] = raw.magnetometer_ga[2];
+					bool vision_updated = false;
+					orb_check(vision_sub, &vision_updated);
 
-					uint64_t now = hrt_absolute_time();
-					unsigned int time_elapsed = now - last_run;
-					last_run = now;
+					if (vision_updated) {
+						orb_copy(ORB_ID(vision_position_estimate), vision_sub, &vision);
+					}
 
-					if (time_elapsed > loop_interval_alarm) {
-						//TODO: add warning, cpu overload here
-						// if (overloadcounter == 20) {
-						// 	printf("CPU OVERLOAD DETECTED IN ATTITUDE ESTIMATOR EKF (%lu > %lu)\n", time_elapsed, loop_interval_alarm);
-						// 	overloadcounter = 0;
-						// }
+					if (vision.timestamp_boot > 0 && (hrt_elapsed_time(&vision.timestamp_boot) < 500000)) {
 
-						overloadcounter++;
+						math::Quaternion q(vision.q);
+						math::Matrix<3, 3> Rvis = q.to_dcm();
+
+						math::Vector<3> v(1.0f, 0.0f, 0.4f);
+
+						math::Vector<3> vn = Rvis.transposed() * v; //Rvis is Rwr (robot respect to world) while v is respect to world. Hence Rvis must be transposed having (Rwr)' * Vw
+											    // Rrw * Vw = vn. This way we have consistency
+						z_k[6] = vn(0);
+						z_k[7] = vn(1);
+						z_k[8] = vn(2);
+					} else {
+						z_k[6] = raw.magnetometer_ga[0];
+						z_k[7] = raw.magnetometer_ga[1];
+						z_k[8] = raw.magnetometer_ga[2];
 					}
 
 					static bool const_initialized = false;
@@ -480,8 +478,6 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 						if (gps.eph < 20.0f && hrt_elapsed_time(&gps.timestamp_position) < 1000000) {
 							mag_decl = math::radians(get_mag_declination(gps.lat / 1e7f, gps.lon / 1e7f));
 
-						} else {
-							mag_decl = ekf_params.mag_decl;
 						}
 
 						/* update mag declination rotation matrix */
@@ -508,11 +504,28 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 						continue;
 					}
 
-					attitudeKalmanfilter(update_vect, dt, z_k, x_aposteriori_k, P_aposteriori_k, ekf_params.q, ekf_params.r,
-							     euler, Rot_matrix, x_aposteriori, P_aposteriori);
+					/* Call the estimator */
+					AttitudeEKF(false, // approx_prediction
+							(unsigned char)ekf_params.use_moment_inertia,
+							update_vect,
+							dt,
+							z_k,
+							ekf_params.q[0], // q_rotSpeed,
+							ekf_params.q[1], // q_rotAcc
+							ekf_params.q[2], // q_acc
+							ekf_params.q[3], // q_mag
+							ekf_params.r[0], // r_gyro
+							ekf_params.r[1], // r_accel
+							ekf_params.r[2], // r_mag
+							ekf_params.moment_inertia_J,
+							x_aposteriori,
+							P_aposteriori,
+							Rot_matrix,
+							euler,
+							debugOutput);
 
 					/* swap values for next iteration, check for fatal inputs */
-					if (isfinite(euler[0]) && isfinite(euler[1]) && isfinite(euler[2])) {
+					if (PX4_ISFINITE(euler[0]) && PX4_ISFINITE(euler[1]) && PX4_ISFINITE(euler[2])) {
 						memcpy(P_aposteriori_k, P_aposteriori, sizeof(P_aposteriori_k));
 						memcpy(x_aposteriori_k, x_aposteriori, sizeof(x_aposteriori_k));
 
@@ -521,8 +534,9 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 						continue;
 					}
 
-					if (last_data > 0 && raw.timestamp - last_data > 30000)
-						printf("[attitude estimator ekf] sensor data missed! (%llu)\n", raw.timestamp - last_data);
+					if (last_data > 0 && raw.timestamp - last_data > 30000) {
+						warnx("sensor data missed! (%llu)\n", static_cast<unsigned long long>(raw.timestamp - last_data));
+					}
 
 					last_data = raw.timestamp;
 
@@ -551,17 +565,20 @@ const unsigned int loop_interval_alarm = 6500;	// loop interval in microseconds
 
 					math::Matrix<3, 3> R_body = (&Rot_matrix[0]);
 					R = R_decl * R_body;
-
+					math::Quaternion q;
+					q.from_dcm(R);
 					/* copy rotation matrix */
-					memcpy(&att.R[0][0], &R.data[0][0], sizeof(att.R));
+					memcpy(&att.R[0], &R.data[0][0], sizeof(att.R));
+					memcpy(&att.q[0],&q.data[0],sizeof(att.q));
 					att.R_valid = true;
 
-					if (isfinite(att.roll) && isfinite(att.pitch) && isfinite(att.yaw)) {
+					if (PX4_ISFINITE(att.q[0]) && PX4_ISFINITE(att.q[1])
+						&& PX4_ISFINITE(att.q[2]) && PX4_ISFINITE(att.q[3])) {
 						// Broadcast
 						orb_publish(ORB_ID(vehicle_attitude), pub_att, &att);
 
 					} else {
-						warnx("NaN in roll/pitch/yaw estimate!");
+						warnx("ERR: NaN estimate!");
 					}
 
 					perf_end(ekf_loop_perf);

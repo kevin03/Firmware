@@ -38,13 +38,14 @@
   */
 
 /* XXX trim includes */
-#include <nuttx/config.h>
+#include <px4_config.h>
+#include <px4_defines.h>
 
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>
-#include <debug.h>
+//#include <debug.h>
 #include <errno.h>
 #include <unistd.h>
 
@@ -56,14 +57,6 @@
 
 #include "board_config.h"
 
-#ifdef PX4_I2C_OBDEV_MS5611
-
-#ifndef PX4_I2C_BUS_ONBOARD
-	#define MS5611_BUS		1
-#else
-	#define MS5611_BUS		PX4_I2C_BUS_ONBOARD
-#endif
-
 #define MS5611_ADDRESS_1		0x76	/* address select pins pulled high (PX4FMU series v1.6+) */
 #define MS5611_ADDRESS_2		0x77    /* address select pins pulled low (PX4FMU prototypes) */
 
@@ -74,20 +67,24 @@ device::Device *MS5611_i2c_interface(ms5611::prom_u &prom_buf);
 class MS5611_I2C : public device::I2C
 {
 public:
-	MS5611_I2C(int bus, ms5611::prom_u &prom_buf);
+	MS5611_I2C(uint8_t bus, ms5611::prom_u &prom_buf);
 	virtual ~MS5611_I2C();
 
 	virtual int	init();
-	virtual int	read(unsigned offset, void *data, unsigned count);
-	virtual int	ioctl(unsigned operation, unsigned &arg);
+	virtual int	dev_read(unsigned offset, void *data, unsigned count);
+	virtual int	dev_ioctl(unsigned operation, unsigned &arg);
 
+#ifdef __PX4_NUTTX
 protected:
 	virtual int	probe();
+#endif
 
 private:
 	ms5611::prom_u	&_prom;
 
+#ifdef __PX4_NUTTX
 	int		_probe_address(uint8_t address);
+#endif
 
 	/**
 	 * Send a reset command to the MS5611.
@@ -106,20 +103,26 @@ private:
 	/**
 	 * Read the MS5611 PROM
 	 *
-	 * @return		OK if the PROM reads successfully.
+	 * @return		PX4_OK if the PROM reads successfully.
 	 */
 	int		_read_prom();
 
 };
 
 device::Device *
-MS5611_i2c_interface(ms5611::prom_u &prom_buf)
+MS5611_i2c_interface(ms5611::prom_u &prom_buf, uint8_t busnum)
 {
-	return new MS5611_I2C(MS5611_BUS, prom_buf);
+	return new MS5611_I2C(busnum, prom_buf);
 }
 
-MS5611_I2C::MS5611_I2C(int bus, ms5611::prom_u &prom) :
-	I2C("MS5611_I2C", nullptr, bus, 0, 400000),
+MS5611_I2C::MS5611_I2C(uint8_t bus, ms5611::prom_u &prom) :
+	I2C("MS5611_I2C", 
+#ifdef __PX4_NUTTX
+nullptr, bus, 0, 400000
+#else
+"/dev/MS5611_I2C", bus, 0
+#endif
+),
 	_prom(prom)
 {
 }
@@ -136,7 +139,7 @@ MS5611_I2C::init()
 }
 
 int
-MS5611_I2C::read(unsigned offset, void *data, unsigned count)
+MS5611_I2C::dev_read(unsigned offset, void *data, unsigned count)
 {
 	union _cvt {
 		uint8_t	b[4];
@@ -147,7 +150,7 @@ MS5611_I2C::read(unsigned offset, void *data, unsigned count)
 	/* read the most recent measurement */
 	uint8_t cmd = 0;
 	int ret = transfer(&cmd, 1, &buf[0], 3);
-	if (ret == OK) {
+	if (ret == PX4_OK) {
 		/* fetch the raw value */
 		cvt->b[0] = buf[2];
 		cvt->b[1] = buf[1];
@@ -159,7 +162,7 @@ MS5611_I2C::read(unsigned offset, void *data, unsigned count)
 }
 
 int
-MS5611_I2C::ioctl(unsigned operation, unsigned &arg)
+MS5611_I2C::dev_ioctl(unsigned operation, unsigned &arg)
 {
 	int ret;
 
@@ -179,19 +182,20 @@ MS5611_I2C::ioctl(unsigned operation, unsigned &arg)
 	return ret;
 }
 
+#ifdef __PX4_NUTTX
 int
 MS5611_I2C::probe()
 {
 	_retries = 10;
 
-	if ((OK == _probe_address(MS5611_ADDRESS_1)) ||
-	    (OK == _probe_address(MS5611_ADDRESS_2))) {
+	if ((PX4_OK == _probe_address(MS5611_ADDRESS_1)) ||
+	    (PX4_OK == _probe_address(MS5611_ADDRESS_2))) {
 		/*
 	    	 * Disable retries; we may enable them selectively in some cases,
 		 * but the device gets confused if we retry some of the commands.
 	    	 */
 		_retries = 0;
-		return OK;
+		return PX4_OK;
 	}
 
 	return -EIO;
@@ -204,15 +208,16 @@ MS5611_I2C::_probe_address(uint8_t address)
 	set_address(address);
 
 	/* send reset command */
-	if (OK != _reset())
+	if (PX4_OK != _reset())
 		return -EIO;
 
 	/* read PROM */
-	if (OK != _read_prom())
+	if (PX4_OK != _read_prom())
 		return -EIO;
 
-	return OK;
+	return PX4_OK;
 }
+#endif
 
 
 int
@@ -262,7 +267,7 @@ MS5611_I2C::_read_prom()
 	for (int i = 0; i < 8; i++) {
 		uint8_t cmd = ADDR_PROM_SETUP + (i * 2);
 
-		if (OK != transfer(&cmd, 1, &prom_buf[0], 2))
+		if (PX4_OK != transfer(&cmd, 1, &prom_buf[0], 2))
 			break;
 
 		/* assemble 16 bit value and convert from big endian (sensor) to little endian (MCU) */
@@ -272,7 +277,5 @@ MS5611_I2C::_read_prom()
 	}
 
 	/* calculate CRC and return success/failure accordingly */
-	return ms5611::crc4(&_prom.c[0]) ? OK : -EIO;
+	return ms5611::crc4(&_prom.c[0]) ? PX4_OK : -EIO;
 }
-
-#endif /* PX4_I2C_OBDEV_MS5611 */

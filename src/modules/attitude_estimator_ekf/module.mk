@@ -39,16 +39,12 @@ MODULE_COMMAND	 = attitude_estimator_ekf
 
 SRCS		 = attitude_estimator_ekf_main.cpp \
 		   attitude_estimator_ekf_params.c \
-		   codegen/eye.c \
-		   codegen/attitudeKalmanfilter.c \
-		   codegen/mrdivide.c \
-		   codegen/rdivide.c \
-		   codegen/attitudeKalmanfilter_initialize.c \
-		   codegen/attitudeKalmanfilter_terminate.c \
-		   codegen/rt_nonfinite.c \
-		   codegen/rtGetInf.c \
-		   codegen/rtGetNaN.c \
-		   codegen/norm.c \
-		   codegen/cross.c
+		   codegen/AttitudeEKF.c
 
 MODULE_STACKSIZE = 1200
+
+EXTRACFLAGS = -Wno-float-equal -Wframe-larger-than=3700
+
+ifeq ($(PX4_TARGET_OS),nuttx)
+EXTRACXXFLAGS = -Wframe-larger-than=2400
+endif

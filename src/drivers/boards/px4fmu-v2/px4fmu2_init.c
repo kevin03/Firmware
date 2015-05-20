@@ -45,7 +45,7 @@
  * Included Files
  ****************************************************************************/
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -93,6 +93,19 @@
 #    define message printf
 #  endif
 #endif
+
+/*
+ * Ideally we'd be able to get these from up_internal.h,
+ * but since we want to be able to disable the NuttX use
+ * of leds for system indication at will and there is no
+ * separate switch, we need to build independent of the
+ * CONFIG_ARCH_LEDS configuration switch.
+ */
+__BEGIN_DECLS
+extern void led_init(void);
+extern void led_on(int led);
+extern void led_off(int led);
+__END_DECLS
 
 /****************************************************************************
  * Protected Functions
@@ -283,8 +296,6 @@ __EXPORT int nsh_archinitialize(void)
 	SPI_SELECT(spi1, PX4_SPIDEV_MPU, false);
 	up_udelay(20);
 
-	message("[boot] Initialized SPI port 1 (SENSORS)\n");
-
 	/* Get the SPI port for the FRAM */
 
 	spi2 = up_spiinitialize(2);
@@ -304,8 +315,6 @@ __EXPORT int nsh_archinitialize(void)
 	SPI_SETMODE(spi2, SPIDEV_MODE3);
 	SPI_SELECT(spi2, SPIDEV_FLASH, false);
 
-	message("[boot] Initialized SPI port 2 (RAMTRON FRAM)\n");
-
 	spi4 = up_spiinitialize(4);
 
 	/* Default SPI4 to 1MHz and de-assert the known chip selects. */
@@ -314,8 +323,6 @@ __EXPORT int nsh_archinitialize(void)
 	SPI_SETMODE(spi4, SPIDEV_MODE3);
 	SPI_SELECT(spi4, PX4_SPIDEV_EXT0, false);
 	SPI_SELECT(spi4, PX4_SPIDEV_EXT1, false);
-
-	message("[boot] Initialized SPI port 4\n");
 
 	#ifdef CONFIG_MMCSD
 	/* First, get an instance of the SDIO interface */
@@ -337,7 +344,6 @@ __EXPORT int nsh_archinitialize(void)
 	/* Then let's guess and say that there is a card in the slot. There is no card detect GPIO. */
 	sdio_mediachange(sdio, true);
 
-	message("[boot] Initialized SDIO\n");
 	#endif
 
 	return OK;

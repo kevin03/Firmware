@@ -43,7 +43,7 @@
 #include "navigator.h"
 
 NavigatorMode::NavigatorMode(Navigator *navigator, const char *name) :
-	SuperBlock(NULL, name),
+	SuperBlock(navigator, name),
 	_navigator(navigator),
 	_first_run(true)
 {
@@ -58,11 +58,15 @@ NavigatorMode::~NavigatorMode()
 }
 
 void
-NavigatorMode::run(bool active) {
+NavigatorMode::run(bool active)
+{
 	if (active) {
 		if (_first_run) {
 			/* first run */
 			_first_run = false;
+			/* Reset stay in failsafe flag */
+			_navigator->get_mission_result()->stay_in_failsafe = false;
+			_navigator->set_mission_result_updated();
 			on_activation();
 
 		} else {

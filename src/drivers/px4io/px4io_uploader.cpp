@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012, 2013 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2012-2015 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,7 @@
  * Firmware uploader for PX4IO
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <sys/types.h>
 #include <stdlib.h>
@@ -621,6 +621,7 @@ int
 PX4IO_Uploader::reboot()
 {
 	send(PROTO_REBOOT);
+	up_udelay(100*1000); // Ensure the farend is in wait for char.
 	send(PROTO_EOC);
 
 	return OK;

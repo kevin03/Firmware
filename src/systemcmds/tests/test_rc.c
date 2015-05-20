@@ -37,7 +37,7 @@
  *
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <sys/types.h>
 
@@ -126,7 +126,7 @@ int test_rc(int argc, char *argv[])
 						warnx("TIMEOUT, less than 10 Hz updates");
 						(void)close(_rc_sub);
 						return ERROR;
-					} 
+					}
 
 				} else {
 					/* key pressed, bye bye */

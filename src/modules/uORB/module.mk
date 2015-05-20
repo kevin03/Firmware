@@ -1,6 +1,6 @@
 ############################################################################
 #
-#   Copyright (c) 2012, 2013 PX4 Development Team. All rights reserved.
+#   Copyright (c) 2012-2015 PX4 Development Team. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -37,10 +37,23 @@
 
 MODULE_COMMAND		= uorb
 
-# XXX probably excessive, 2048 should be sufficient
-MODULE_STACKSIZE	= 4096
+MODULE_STACKSIZE	= 2048
 
-SRCS			= uORB.cpp \
-			  objects_common.cpp \
+ifeq ($(PX4_TARGET_OS),nuttx)
+SRCS			= uORBDevices_nuttx.cpp \
+			  uORBTest_UnitTest.cpp \
+			  uORBManager_nuttx.cpp
+ 
+else
+SRCS			= uORBDevices_posix.cpp \
+			  uORBTest_UnitTest.cpp \
+			  uORBManager_posix.cpp
+endif
+SRCS	+= 		  objects_common.cpp \
 			  Publication.cpp \
-			  Subscription.cpp
+			  Subscription.cpp \
+			  uORBUtils.cpp \
+			  uORB.cpp \
+			  uORBMain.cpp
+
+MAXOPTIMIZATION	 = -Os

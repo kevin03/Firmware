@@ -43,7 +43,7 @@
  * Included Files
  ****************************************************************************************************/
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 #include <nuttx/compiler.h>
 #include <stdint.h>
 
@@ -52,7 +52,7 @@ __BEGIN_DECLS
 /* these headers are not C++ safe */
 #include <stm32.h>
 #include <arch/board/board.h>
- 
+
 /****************************************************************************************************
  * Definitions
  ****************************************************************************************************/
@@ -114,7 +114,6 @@ __BEGIN_DECLS
  * Note that these are unshifted addresses.
  */
 #define PX4_I2C_OBDEV_HMC5883	0x1e
-#define PX4_I2C_OBDEV_MS5611	0x76
 #define PX4_I2C_OBDEV_EEPROM	NOTDEFINED
 #define PX4_I2C_OBDEV_LED	0x55
 
@@ -208,6 +207,27 @@ __BEGIN_DECLS
  ****************************************************************************************************/
 
 extern void stm32_spiinitialize(void);
+
+extern void stm32_usbinitialize(void);
+
+/****************************************************************************
+ * Name: nsh_archinitialize
+ *
+ * Description:
+ *   Perform architecture specific initialization for NSH.
+ *
+ *   CONFIG_NSH_ARCHINIT=y :
+ *     Called from the NSH library
+ *
+ *   CONFIG_BOARD_INITIALIZE=y, CONFIG_NSH_LIBRARY=y, &&
+ *   CONFIG_NSH_ARCHINIT=n :
+ *     Called from board_initialize().
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_NSH_LIBRARY
+int nsh_archinitialize(void);
+#endif
 
 #endif /* __ASSEMBLY__ */
 

@@ -39,7 +39,7 @@
  * @author Thomas Gubler <thomasgubler@gmail.com>
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <systemlib/param/param.h>
 
@@ -48,13 +48,66 @@
  */
 
 /**
- * Enable geofence.
+ * Geofence mode.
  *
- * Set to 1 to enable geofence.
- * Defaults to 1 because geofence is only enabled when the geofence.txt file is present.
+ * 0 = disabled, 1 = geofence file only, 2 = max horizontal (GF_MAX_HOR_DIST) and vertical (GF_MAX_VER_DIST) distances, 3 = both
+ *
+ * @min 0
+ * @max 3
+ * @group Geofence
+ */
+PARAM_DEFINE_INT32(GF_MODE, 0);
+
+/**
+ * Geofence altitude mode
+ *
+ * Select which altitude reference should be used
+ * 0 = WGS84, 1 = AMSL
  *
  * @min 0
  * @max 1
  * @group Geofence
  */
-PARAM_DEFINE_INT32(GF_ON, 1);
+PARAM_DEFINE_INT32(GF_ALTMODE, 0);
+
+/**
+ * Geofence source
+ *
+ * Select which position source should be used. Selecting GPS instead of global position makes sure that there is
+ * no dependence on the position estimator
+ * 0 = global position, 1 = GPS
+ *
+ * @min 0
+ * @max 1
+ * @group Geofence
+ */
+PARAM_DEFINE_INT32(GF_SOURCE, 0);
+
+/**
+ * Geofence counter limit
+ *
+ * Set how many subsequent position measurements outside of the fence are needed before geofence violation is triggered
+ *
+ * @min -1
+ * @max 10
+ * @group Geofence
+ */
+PARAM_DEFINE_INT32(GF_COUNT, -1);
+
+/**
+ * Max horizontal distance in meters.
+ *
+ * Set to > 0 to activate RTL if horizontal distance to home exceeds this value.
+ *
+ * @group Geofence
+ */
+PARAM_DEFINE_INT32(GF_MAX_HOR_DIST, -1);
+
+/**
+ * Max vertical distance in meters.
+ *
+ * Set to > 0 to activate RTL if vertical distance to home exceeds this value.
+ *
+ * @group Geofence
+ */
+PARAM_DEFINE_INT32(GF_MAX_VER_DIST, -1);

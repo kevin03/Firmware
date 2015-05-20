@@ -39,7 +39,7 @@
  * @author Julian Oes <joes@student.ethz.ch>
  */
 
-#include <nuttx/config.h>
+#include <px4_config.h>
 
 #include <systemlib/param/param.h>
 
@@ -82,3 +82,32 @@ PARAM_DEFINE_INT32(MIS_ONBOARD_EN, 1);
  * @group Mission
  */
 PARAM_DEFINE_FLOAT(MIS_DIST_1WP, 500);
+
+/**
+ * Altitude setpoint mode
+ *
+ * 0: the system will follow a zero order hold altitude setpoint
+ * 1: the system will follow a first order hold altitude setpoint
+ * values follow the definition in enum mission_altitude_mode
+ *
+ * @min 0
+ * @max 1
+ * @group Mission
+ */
+PARAM_DEFINE_INT32(MIS_ALTMODE, 0);
+
+/**
+ * Multirotor only. Yaw setpoint mode.
+ *
+ * 0: Set the yaw heading to the yaw value specified for the destination waypoint.
+ * 1: Maintain a yaw heading pointing towards the next waypoint.
+ * 2: Maintain a yaw heading that always points to the home location.
+ * 3: Maintain a yaw heading that always points away from the home location (ie: back always faces home).
+ *
+ * The values are defined in the enum mission_altitude_mode
+ *
+ * @min 0
+ * @max 3
+ * @group Mission
+ */
+PARAM_DEFINE_INT32(MIS_YAWMODE, 1);

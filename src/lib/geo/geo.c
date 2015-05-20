@@ -43,7 +43,7 @@
  */
 
 #include <geo/geo.h>
-#include <nuttx/config.h>
+#include <px4_config.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -274,17 +274,17 @@ __EXPORT int globallocalconverter_getref(double *lat_0, double *lon_0, float *al
 
 __EXPORT float get_distance_to_next_waypoint(double lat_now, double lon_now, double lat_next, double lon_next)
 {
-	double lat_now_rad = lat_now / 180.0d * M_PI;
-	double lon_now_rad = lon_now / 180.0d * M_PI;
-	double lat_next_rad = lat_next / 180.0d * M_PI;
-	double lon_next_rad = lon_next / 180.0d * M_PI;
+	double lat_now_rad = lat_now / (double)180.0 * M_PI;
+	double lon_now_rad = lon_now / (double)180.0 * M_PI;
+	double lat_next_rad = lat_next / (double)180.0 * M_PI;
+	double lon_next_rad = lon_next / (double)180.0 * M_PI;
 
 
 	double d_lat = lat_next_rad - lat_now_rad;
 	double d_lon = lon_next_rad - lon_now_rad;
 
-	double a = sin(d_lat / 2.0d) * sin(d_lat / 2.0d) + sin(d_lon / 2.0d) * sin(d_lon / 2.0d) * cos(lat_now_rad) * cos(lat_next_rad);
-	double c = 2.0d * atan2(sqrt(a), sqrt(1.0d - a));
+	double a = sin(d_lat / (double)2.0) * sin(d_lat / (double)2.0) + sin(d_lon / (double)2.0) * sin(d_lon / (double)2.0) * cos(lat_now_rad) * cos(lat_next_rad);
+	double c = (double)2.0 * atan2(sqrt(a), sqrt((double)1.0 - a));
 
 	return CONSTANTS_RADIUS_OF_EARTH * c;
 }
@@ -362,8 +362,12 @@ __EXPORT int get_distance_to_line(struct crosstrack_error_s *crosstrack_error, d
 	crosstrack_error->distance = 0.0f;
 	crosstrack_error->bearing = 0.0f;
 
+	dist_to_end = get_distance_to_next_waypoint(lat_now, lon_now, lat_end, lon_end);
+
 	// Return error if arguments are bad
-	if (lat_now == 0.0 || lon_now == 0.0 || lat_start == 0.0 || lon_start == 0.0 || lat_end == 0.0d || lon_end == 0.0d) { return return_value; }
+	if (dist_to_end < 0.1f) {
+		return ERROR;
+	}
 
 	bearing_end = get_bearing_to_next_waypoint(lat_now, lon_now, lat_end, lon_end);
 	bearing_track = get_bearing_to_next_waypoint(lat_start, lon_start, lat_end, lon_end);
@@ -377,7 +381,6 @@ __EXPORT int get_distance_to_line(struct crosstrack_error_s *crosstrack_error, d
 		return return_value;
 	}
 
-	dist_to_end = get_distance_to_next_waypoint(lat_now, lon_now, lat_end, lon_end);
 	crosstrack_error->distance = (dist_to_end) * sinf(bearing_diff);
 
 	if (sin(bearing_diff) >= 0) {
@@ -414,10 +417,10 @@ __EXPORT int get_distance_to_arc(struct crosstrack_error_s *crosstrack_error, do
 	crosstrack_error->bearing = 0.0f;
 
 	// Return error if arguments are bad
-	if (lat_now == 0.0 || lon_now == 0.0 || lat_center == 0.0 || lon_center == 0.0 || radius == 0.0f) { return return_value; }
+	if (radius < 0.1f) { return return_value; }
 
 
-	if (arc_sweep >= 0) {
+	if (arc_sweep >= 0.0f) {
 		bearing_sector_start = arc_start_bearing;
 		bearing_sector_end = arc_start_bearing + arc_sweep;
 
@@ -463,8 +466,8 @@ __EXPORT int get_distance_to_arc(struct crosstrack_error_s *crosstrack_error, do
 
 		double start_disp_x = (double)radius * sin(arc_start_bearing);
 		double start_disp_y = (double)radius * cos(arc_start_bearing);
-		double end_disp_x = (double)radius * sin(_wrapPI((double)(arc_start_bearing + arc_sweep)));
-		double end_disp_y = (double)radius * cos(_wrapPI((double)(arc_start_bearing + arc_sweep)));
+		double end_disp_x = (double)radius * sin(_wrap_pi((double)(arc_start_bearing + arc_sweep)));
+		double end_disp_y = (double)radius * cos(_wrap_pi((double)(arc_start_bearing + arc_sweep)));
 		double lon_start = lon_now + start_disp_x / 111111.0;
 		double lat_start = lat_now + start_disp_y * cos(lat_now) / 111111.0;
 		double lon_end = lon_now + end_disp_x / 111111.0;
@@ -484,7 +487,7 @@ __EXPORT int get_distance_to_arc(struct crosstrack_error_s *crosstrack_error, do
 
 	}
 
-	crosstrack_error->bearing = _wrapPI((double)crosstrack_error->bearing);
+	crosstrack_error->bearing = _wrap_pi((double)crosstrack_error->bearing);
 	return_value = OK;
 	return return_value;
 }

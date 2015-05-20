@@ -113,6 +113,19 @@ MissionBlock::is_mission_item_reached()
 			if (dist >= 0.0f && dist <= _navigator->get_acceptance_radius()) {
 				_waypoint_position_reached = true;
 			}
+		} else if (!_navigator->get_vstatus()->is_rotary_wing &&
+			(_mission_item.nav_cmd == NAV_CMD_LOITER_UNLIMITED ||
+			_mission_item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT ||
+			_mission_item.nav_cmd == NAV_CMD_LOITER_TURN_COUNT)) {
+			/* Loiter mission item on a non rotary wing: the aircraft is going to circle the
+			 * coordinates with a radius equal to the loiter_radius field. It is not flying
+			 * through the waypoint center.
+			 * Therefore the item is marked as reached once the system reaches the loiter
+			 * radius (+ some margin). Time inside and turn count is handled elsewhere.
+			 */
+			if (dist >= 0.0f && dist <= _mission_item.loiter_radius * 1.2f) {
+				_waypoint_position_reached = true;
+			}
 		} else {
 			/* for normal mission items used their acceptance radius */
 			if (dist >= 0.0f && dist <= _mission_item.acceptance_radius) {
@@ -121,6 +134,7 @@ MissionBlock::is_mission_item_reached()
 		}
 	}
 
+	/* Check if the waypoint and the requested yaw setpoint. */
 	if (_waypoint_position_reached && !_waypoint_yaw_reached) {
 
 		/* TODO: removed takeoff, why? */
@@ -138,14 +152,14 @@ MissionBlock::is_mission_item_reached()
 		}
 	}
 
-	/* check if the current waypoint was reached */
+	/* Once the waypoint and yaw setpoint have been reached we can start the loiter time countdown */
 	if (_waypoint_position_reached && _waypoint_yaw_reached) {
 
 		if (_time_first_inside_orbit == 0) {
 			_time_first_inside_orbit = now;
 
 			// if (_mission_item.time_inside > 0.01f) {
-			// 	mavlink_log_info(_mavlink_fd, "#audio: waypoint reached, wait for %.1fs",
+			// 	mavlink_log_critical(_mavlink_fd, "waypoint reached, wait for %.1fs",
 			// 		(double)_mission_item.time_inside);
 			// }
 		}
@@ -180,25 +194,25 @@ MissionBlock::mission_item_to_position_setpoint(const struct mission_item_s *ite
 
 	switch (item->nav_cmd) {
 	case NAV_CMD_IDLE:
-		sp->type = SETPOINT_TYPE_IDLE;
+		sp->type = position_setpoint_s::SETPOINT_TYPE_IDLE;
 		break;
 
 	case NAV_CMD_TAKEOFF:
-		sp->type = SETPOINT_TYPE_TAKEOFF;
+		sp->type = position_setpoint_s::SETPOINT_TYPE_TAKEOFF;
 		break;
 
 	case NAV_CMD_LAND:
-		sp->type = SETPOINT_TYPE_LAND;
+		sp->type = position_setpoint_s::SETPOINT_TYPE_LAND;
 		break;
 
 	case NAV_CMD_LOITER_TIME_LIMIT:
 	case NAV_CMD_LOITER_TURN_COUNT:
 	case NAV_CMD_LOITER_UNLIMITED:
-		sp->type = SETPOINT_TYPE_LOITER;
+		sp->type = position_setpoint_s::SETPOINT_TYPE_LOITER;
 		break;
 
 	default:
-		sp->type = SETPOINT_TYPE_POSITION;
+		sp->type = position_setpoint_s::SETPOINT_TYPE_POSITION;
 		break;
 	}
 }
